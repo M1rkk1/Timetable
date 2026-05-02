@@ -15,38 +15,46 @@
       <div class="header-actions">
         <button class="secondary" id="loadSampleButton" type="button">Load Sample</button>
         <button class="secondary" id="clearButton" type="button">Clear</button>
-        <button id="generateButton" type="button">AI Generate</button>
+        <button id="generateButton" type="button">Build Timetable</button>
       </div>
     </header>
 
     <main class="layout">
       <section class="setup-panel" aria-label="Timetable setup">
         <nav class="tabs" aria-label="Setup sections">
-          <button class="tab active" data-tab="basics" type="button">School Week</button>
+          <button class="tab active" data-tab="basics" type="button">Skeleton</button>
           <button class="tab" data-tab="loads" type="button">Teacher Loads</button>
         </nav>
 
         <div class="tab-panel active" id="basics">
           <div class="panel-heading">
-            <h2>School Week</h2>
-            <p>Set the teaching days and periods available each day.</p>
+            <h2>Timetable Skeleton</h2>
+            <p>Choose the number of columns and rows, then name the days and time slots.</p>
           </div>
           <div class="form-grid">
             <label>
-              Days
+              Columns
+              <input id="columnsInput" type="number" min="1" max="10" value="5" />
+            </label>
+            <label>
+              Rows
+              <input id="rowsInput" type="number" min="1" max="16" value="8" />
+            </label>
+            <label class="wide-field">
+              Column names
               <input id="daysInput" type="text" value="Monday, Tuesday, Wednesday, Thursday, Friday" />
             </label>
-            <label>
-              Periods per day
-              <input id="periodsInput" type="number" min="1" max="12" value="8" />
+            <label class="wide-field">
+              Time rows
+              <input
+                id="timeSlotsInput"
+                type="text"
+                value="8:00-8:40, 8:40-9:20, 9:20-10:00, 10:30-11:10, 11:10-11:50, 11:50-12:30, 2:00-2:40, 2:40-3:20"
+              />
             </label>
             <label>
-              Break after period
-              <input id="breakInput" type="number" min="0" max="12" value="4" />
-            </label>
-            <label>
-              Max teacher periods per day
-              <input id="maxDailyInput" type="number" min="1" max="12" value="6" />
+              Max teacher rows per day
+              <input id="maxDailyInput" type="number" min="1" max="16" value="6" />
             </label>
           </div>
         </div>
@@ -70,8 +78,8 @@
               <input id="teacherSubjectInput" type="text" placeholder="e.g. Mathematics" required />
             </label>
             <label class="wide-field">
-              Teacher unavailable slots
-              <input id="teacherUnavailableInput" type="text" placeholder="Optional: Monday P1, Friday P8" />
+              Teacher unavailable times
+              <input id="teacherUnavailableInput" type="text" placeholder="Optional: Monday 8:00-8:40, Friday 2:40-3:20" />
             </label>
             <button type="submit">Add Teacher Load</button>
           </form>
@@ -91,7 +99,7 @@
           </div>
         </div>
         <div class="notice" id="notice">
-          Add teacher loads, then use AI Generate to place subjects into the timetable automatically.
+          Build a blank timetable skeleton, or add teacher loads first so the app can fill it automatically.
         </div>
         <div class="stats" id="stats"></div>
         <div class="timetable-area" id="timetableArea"></div>

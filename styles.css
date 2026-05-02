@@ -362,6 +362,30 @@ th:first-child {
   font-size: 0.82rem;
 }
 
+.editable-lesson {
+  display: grid;
+  gap: 6px;
+  min-width: 150px;
+}
+
+.editable-lesson input {
+  background: white;
+  border-color: transparent;
+  min-height: 34px;
+  padding: 0 8px;
+}
+
+.editable-lesson input:first-child {
+  color: var(--brand-dark);
+  font-weight: 800;
+}
+
+.editable-lesson input:focus {
+  background: #f6fbfc;
+  border-color: var(--brand);
+  outline: 2px solid rgba(29, 111, 117, 0.14);
+}
+
 .break-cell {
   background: #f7f0e6;
   color: #7c541e;

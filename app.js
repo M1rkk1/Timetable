@@ -9,9 +9,10 @@ const state = {
 const els = {
   tabs: document.querySelectorAll(".tab"),
   tabPanels: document.querySelectorAll(".tab-panel"),
+  columnsInput: document.querySelector("#columnsInput"),
+  rowsInput: document.querySelector("#rowsInput"),
   daysInput: document.querySelector("#daysInput"),
-  periodsInput: document.querySelector("#periodsInput"),
-  breakInput: document.querySelector("#breakInput"),
+  timeSlotsInput: document.querySelector("#timeSlotsInput"),
   maxDailyInput: document.querySelector("#maxDailyInput"),
   teacherLoadForm: document.querySelector("#teacherLoadForm"),
   teacherNameInput: document.querySelector("#teacherNameInput"),
@@ -58,6 +59,14 @@ function cleanName(value) {
   return value.trim().replace(/\s+/g, " ");
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function parseList(value) {
   const names = value
     .split(",")
@@ -76,23 +85,39 @@ function findOrCreate(collection, name, prefix, extra = {}) {
 }
 
 function parseDays() {
-  return parseList(els.daysInput.value);
+  const columnCount = Number(els.columnsInput.value);
+  const names = parseList(els.daysInput.value);
+  while (names.length < columnCount) {
+    names.push(`Column ${names.length + 1}`);
+  }
+  return names.slice(0, columnCount);
 }
 
-function slotKey(day, period) {
-  return `${day}::${period}`;
+function parseTimeSlots() {
+  const rowCount = Number(els.rowsInput.value);
+  const labels = parseList(els.timeSlotsInput.value);
+  while (labels.length < rowCount) {
+    labels.push(`Time ${labels.length + 1}`);
+  }
+  return labels.slice(0, rowCount);
 }
 
-function parseUnavailable(value, days, periodsPerDay) {
+function slotKey(day, row) {
+  return `${day}::${row}`;
+}
+
+function parseUnavailable(value, days, timeSlots) {
   if (!value.trim()) return new Set();
   const unavailable = new Set();
   const dayLookup = new Map(days.map((day) => [day.toLowerCase(), day]));
   parseList(value).forEach((token) => {
-    const match = token.match(/^(.+?)\s+p(?:eriod)?\s*(\d+)$/i);
-    if (!match) return;
-    const day = dayLookup.get(match[1].trim().toLowerCase());
-    const period = Number(match[2]);
-    if (day && period >= 1 && period <= periodsPerDay) unavailable.add(slotKey(day, period));
+    const lowered = token.toLowerCase();
+    days.forEach((day) => {
+      if (!lowered.startsWith(day.toLowerCase())) return;
+      const timeText = cleanName(token.slice(day.length));
+      const row = timeSlots.findIndex((slot) => slot.toLowerCase() === timeText.toLowerCase()) + 1;
+      if (dayLookup.get(day.toLowerCase()) && row > 0) unavailable.add(slotKey(day, row));
+    });
   });
   return unavailable;
 }
@@ -208,13 +233,11 @@ function buildOptions() {
   return options;
 }
 
-function validateSetup(days, periodsPerDay, breakAfter, maxDaily, options) {
+function validateSetup(days, timeSlots, maxDaily, options) {
   const errors = [];
-  if (days.length < 1) errors.push("Add at least one teaching day.");
-  if (periodsPerDay < 1 || periodsPerDay > 12) errors.push("Periods per day must be between 1 and 12.");
-  if (breakAfter < 0 || breakAfter > periodsPerDay) errors.push("Break after period must fit inside the day.");
-  if (maxDaily < 1 || maxDaily > periodsPerDay) errors.push("Max teacher periods per day must fit inside the day.");
-  if (!state.loads.length) errors.push("Add at least one teacher load.");
+  if (days.length < 1) errors.push("Add at least one timetable column.");
+  if (timeSlots.length < 1) errors.push("Add at least one timetable row.");
+  if (maxDaily < 1 || maxDaily > timeSlots.length) errors.push("Max teacher periods per day must fit inside the rows.");
   state.classes.forEach((classItem) => {
     const hasSubjects = options.some((option) => option.classId === classItem.id);
     if (!hasSubjects) {
@@ -234,14 +257,15 @@ function shuffle(items) {
   return copy;
 }
 
-function createEmptySchedule(days, periodsPerDay) {
+function createEmptySchedule(days, timeSlots) {
   const schedule = {};
-  state.classes.forEach((classItem) => {
+  const classes = state.classes.length ? state.classes : [{ id: "manual-class", name: "Timetable" }];
+  classes.forEach((classItem) => {
     schedule[classItem.id] = {};
     days.forEach((day) => {
       schedule[classItem.id][day] = {};
-      for (let period = 1; period <= periodsPerDay; period += 1) {
-        schedule[classItem.id][day][period] = null;
+      for (let row = 1; row <= timeSlots.length; row += 1) {
+        schedule[classItem.id][day][row] = null;
       }
     });
   });
@@ -250,11 +274,10 @@ function createEmptySchedule(days, periodsPerDay) {
 
 function generateTimetable() {
   const days = parseDays();
-  const periodsPerDay = Number(els.periodsInput.value);
-  const breakAfter = Number(els.breakInput.value);
+  const timeSlots = parseTimeSlots();
   const maxDaily = Number(els.maxDailyInput.value);
   const options = buildOptions();
-  const errors = validateSetup(days, periodsPerDay, breakAfter, maxDaily, options);
+  const errors = validateSetup(days, timeSlots, maxDaily, options);
 
   if (errors.length) {
     showNotice(errors.join(" "), "error");
@@ -264,19 +287,19 @@ function generateTimetable() {
   const teacherUnavailable = new Map(
     state.teachers.map((teacher) => [
       teacher.id,
-      parseUnavailable(teacher.unavailableText || "", days, periodsPerDay),
+      parseUnavailable(teacher.unavailableText || "", days, timeSlots),
     ]),
   );
-  const schedule = createEmptySchedule(days, periodsPerDay);
+  const schedule = createEmptySchedule(days, timeSlots);
   const teacherBooked = new Map();
   const teacherDailyLoad = new Map();
   const classSubjectDaily = new Map();
   const placements = [];
 
-  function canPlace(option, day, period) {
-    const key = slotKey(day, period);
-    const previous = period > 1 ? schedule[option.classId][day][period - 1] : null;
-    if (schedule[option.classId][day][period]) return false;
+  function canPlace(option, day, row) {
+    const key = slotKey(day, row);
+    const previous = row > 1 ? schedule[option.classId][day][row - 1] : null;
+    if (schedule[option.classId][day][row]) return false;
     if (teacherBooked.get(`${option.teacherId}::${key}`)) return false;
     const unavailable = teacherUnavailable.get(option.teacherId);
     if (unavailable && unavailable.has(key)) return false;
@@ -286,10 +309,10 @@ function generateTimetable() {
     return true;
   }
 
-  function place(option, day, period) {
-    const key = slotKey(day, period);
-    const placement = { ...option, id: `${option.id}-${day}-${period}` };
-    schedule[option.classId][day][period] = placement;
+  function place(option, day, row) {
+    const key = slotKey(day, row);
+    const placement = { ...option, id: `${option.id}-${day}-${row}` };
+    schedule[option.classId][day][row] = placement;
     teacherBooked.set(`${option.teacherId}::${key}`, true);
     teacherDailyLoad.set(`${option.teacherId}::${day}`, (teacherDailyLoad.get(`${option.teacherId}::${day}`) || 0) + 1);
     classSubjectDaily.set(
@@ -301,10 +324,10 @@ function generateTimetable() {
 
   shuffle(state.classes).forEach((classItem) => {
     days.forEach((day) => {
-      for (let period = 1; period <= periodsPerDay; period += 1) {
+      for (let row = 1; row <= timeSlots.length; row += 1) {
         const classOptions = options.filter((option) => option.classId === classItem.id);
         const candidates = shuffle(classOptions)
-          .filter((option) => canPlace(option, day, period))
+          .filter((option) => canPlace(option, day, row))
           .sort((a, b) => {
             const aSubjectLoad = classSubjectDaily.get(`${a.classId}::${a.subjectId}::${day}`) || 0;
             const bSubjectLoad = classSubjectDaily.get(`${b.classId}::${b.subjectId}::${day}`) || 0;
@@ -312,19 +335,39 @@ function generateTimetable() {
             const bTeacherLoad = teacherDailyLoad.get(`${b.teacherId}::${day}`) || 0;
             return aSubjectLoad - bSubjectLoad || aTeacherLoad - bTeacherLoad;
           });
-        if (candidates.length) place(candidates[0], day, period);
+        if (candidates.length) place(candidates[0], day, row);
       }
     });
   });
 
-  return { schedule, days, periodsPerDay, breakAfter, tasks: placements };
+  return { schedule, days, timeSlots, tasks: placements };
 }
 
 function lookupTask(task) {
   if (!task) return null;
+  if (task.manual) {
+    return {
+      subject: { name: task.subjectName || "" },
+      teacher: { name: task.teacherName || "" },
+    };
+  }
   const subject = state.subjects.find((item) => item.id === task.subjectId);
   const teacher = state.teachers.find((item) => item.id === task.teacherId);
   return { subject, teacher };
+}
+
+function updateManualCell(classId, day, row, field, value) {
+  if (!state.generated) return;
+  const current = state.generated.schedule[classId][day][row];
+  const detail = lookupTask(current) || { subject: { name: "" }, teacher: { name: "" } };
+  const manual = {
+    id: `manual-${classId}-${day}-${row}`,
+    manual: true,
+    subjectName: detail.subject ? detail.subject.name : "",
+    teacherName: detail.teacher ? detail.teacher.name : "",
+  };
+  manual[field] = value;
+  state.generated.schedule[classId][day][row] = manual.subjectName || manual.teacherName ? manual : null;
 }
 
 function renderTimetable(result) {
@@ -333,13 +376,14 @@ function renderTimetable(result) {
 
   if (!result) return;
 
-  const totalSlots = state.classes.length * result.days.length * result.periodsPerDay;
+  const tableClasses = state.classes.length ? state.classes : [{ id: "manual-class", name: "Timetable" }];
+  const totalSlots = tableClasses.length * result.days.length * result.timeSlots.length;
   const usedSlots = result.tasks.length;
   const utilization = Math.round((usedSlots / totalSlots) * 100);
   const stats = [
-    ["Classes", state.classes.length],
+    ["Tables", tableClasses.length],
     ["Teachers", state.teachers.length],
-    ["Subjects", state.subjects.length],
+    ["Rows", result.timeSlots.length],
     ["Use", `${utilization}%`],
   ];
 
@@ -350,7 +394,7 @@ function renderTimetable(result) {
     els.stats.append(stat);
   });
 
-  state.classes.forEach((classItem) => {
+  tableClasses.forEach((classItem) => {
     const wrapper = document.createElement("article");
     wrapper.className = "class-table";
     const title = document.createElement("div");
@@ -361,7 +405,7 @@ function renderTimetable(result) {
     const table = document.createElement("table");
     const thead = document.createElement("thead");
     const headRow = document.createElement("tr");
-    headRow.innerHTML = "<th>Period</th>";
+    headRow.innerHTML = "<th>Time</th>";
     result.days.forEach((day) => {
       const th = document.createElement("th");
       th.textContent = day;
@@ -371,24 +415,30 @@ function renderTimetable(result) {
     table.append(thead);
 
     const tbody = document.createElement("tbody");
-    for (let period = 1; period <= result.periodsPerDay; period += 1) {
-      if (result.breakAfter > 0 && result.breakAfter === period - 1) {
-        const breakRow = document.createElement("tr");
-        breakRow.innerHTML = `<td class="break-cell" colspan="${result.days.length + 1}">Break</td>`;
-        tbody.append(breakRow);
-      }
-
+    for (let rowIndex = 0; rowIndex < result.timeSlots.length; rowIndex += 1) {
+      const rowNumber = rowIndex + 1;
       const row = document.createElement("tr");
       const label = document.createElement("th");
-      label.textContent = `P${period}`;
+      label.textContent = result.timeSlots[rowIndex];
       row.append(label);
       result.days.forEach((day) => {
         const cell = document.createElement("td");
-        const task = result.schedule[classItem.id][day][period];
+        const task = result.schedule[classItem.id][day][rowNumber];
         const detail = lookupTask(task);
-        if (detail) {
-          cell.innerHTML = `<div class="lesson"><strong>${detail.subject.name}</strong><span>${detail.teacher.name}</span></div>`;
-        }
+        const subjectValue = detail && detail.subject ? detail.subject.name : "";
+        const teacherValue = detail && detail.teacher ? detail.teacher.name : "";
+        cell.innerHTML = `
+          <div class="editable-lesson">
+            <input class="cell-subject" type="text" value="${escapeHtml(subjectValue)}" placeholder="Subject" />
+            <input class="cell-teacher" type="text" value="${escapeHtml(teacherValue)}" placeholder="Teacher" />
+          </div>
+        `;
+        cell.querySelector(".cell-subject").addEventListener("input", (event) => {
+          updateManualCell(classItem.id, day, rowNumber, "subjectName", event.target.value);
+        });
+        cell.querySelector(".cell-teacher").addEventListener("input", (event) => {
+          updateManualCell(classItem.id, day, rowNumber, "teacherName", event.target.value);
+        });
         row.append(cell);
       });
       tbody.append(row);
@@ -401,21 +451,23 @@ function renderTimetable(result) {
   els.resultTitle.textContent = "Timetable generated";
   els.exportButton.disabled = false;
   els.printButton.disabled = false;
-  showNotice("AI timetable generated. Blank spaces mean no safe subject fit that period.", "success");
+  showNotice("Timetable built. You can edit any subject or teacher directly inside the table.", "success");
 }
 
 function exportCsv() {
   if (!state.generated) return;
-  const rows = [["Class", "Day", "Period", "Subject", "Teacher"]];
-  state.classes.forEach((classItem) => {
+  const rows = [["Class", "Column", "Time", "Subject", "Teacher"]];
+  const tableClasses = state.classes.length ? state.classes : [{ id: "manual-class", name: "Timetable" }];
+  tableClasses.forEach((classItem) => {
     state.generated.days.forEach((day) => {
-      for (let period = 1; period <= state.generated.periodsPerDay; period += 1) {
-        const task = state.generated.schedule[classItem.id][day][period];
+      for (let rowIndex = 0; rowIndex < state.generated.timeSlots.length; rowIndex += 1) {
+        const rowNumber = rowIndex + 1;
+        const task = state.generated.schedule[classItem.id][day][rowNumber];
         const detail = lookupTask(task);
         rows.push([
           classItem.name,
           day,
-          `P${period}`,
+          state.generated.timeSlots[rowIndex],
           detail && detail.subject ? detail.subject.name : "",
           detail && detail.teacher ? detail.teacher.name : "",
         ]);
