@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>School Timetable Builder</title>
+    <title>Gamma School Timetable</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <header class="app-header">
       <div>
         <p class="eyebrow">School operations</p>
-        <h1>Timetable Builder</h1>
+        <h1>Gamma School Timetable</h1>
       </div>
       <div class="header-actions">
         <button class="secondary" id="loadSampleButton" type="button">Load Sample</button>
@@ -22,11 +22,8 @@
     <main class="layout">
       <section class="setup-panel" aria-label="Timetable setup">
         <nav class="tabs" aria-label="Setup sections">
-          <button class="tab active" data-tab="basics" type="button">Basics</button>
-          <button class="tab" data-tab="classes" type="button">Classes</button>
-          <button class="tab" data-tab="teachers" type="button">Teachers</button>
-          <button class="tab" data-tab="subjects" type="button">Subjects</button>
-          <button class="tab" data-tab="assignments" type="button">Assignments</button>
+          <button class="tab active" data-tab="basics" type="button">School Week</button>
+          <button class="tab" data-tab="loads" type="button">Teacher Loads</button>
         </nav>
 
         <div class="tab-panel active" id="basics">
@@ -54,68 +51,35 @@
           </div>
         </div>
 
-        <div class="tab-panel" id="classes">
+        <div class="tab-panel" id="loads">
           <div class="panel-heading">
-            <h2>Classes</h2>
-            <p>Add every stream or class that needs a timetable.</p>
+            <h2>Teacher Loads</h2>
+            <p>Enter a teacher, the streams taught, the subject, and lessons per week in one place.</p>
           </div>
-          <form class="inline-form" id="classForm">
-            <input id="classNameInput" type="text" placeholder="e.g. Form 1 East" required />
-            <button type="submit">Add Class</button>
-          </form>
-          <div class="list" id="classesList"></div>
-        </div>
-
-        <div class="tab-panel" id="teachers">
-          <div class="panel-heading">
-            <h2>Teachers</h2>
-            <p>List teachers and optional unavailable slots.</p>
-          </div>
-          <form class="inline-form" id="teacherForm">
-            <input id="teacherNameInput" type="text" placeholder="e.g. Ms. Achieng" required />
-            <input id="teacherUnavailableInput" type="text" placeholder="Unavailable: Monday P1, Friday P8" />
-            <button type="submit">Add Teacher</button>
-          </form>
-          <div class="list" id="teachersList"></div>
-        </div>
-
-        <div class="tab-panel" id="subjects">
-          <div class="panel-heading">
-            <h2>Subjects</h2>
-            <p>Create the subject catalog used by all classes.</p>
-          </div>
-          <form class="inline-form" id="subjectForm">
-            <input id="subjectNameInput" type="text" placeholder="e.g. Mathematics" required />
-            <button type="submit">Add Subject</button>
-          </form>
-          <div class="list" id="subjectsList"></div>
-        </div>
-
-        <div class="tab-panel" id="assignments">
-          <div class="panel-heading">
-            <h2>Teaching Assignments</h2>
-            <p>Choose which teacher teaches each subject in each class and how many lessons per week.</p>
-          </div>
-          <form class="assignment-form" id="assignmentForm">
+          <form class="teacher-load-form" id="teacherLoadForm">
             <label>
-              Class
-              <select id="assignmentClassSelect" required></select>
+              Teacher name
+              <input id="teacherNameInput" type="text" placeholder="e.g. Ms. Achieng" required />
+            </label>
+            <label>
+              Classes or streams
+              <input id="teacherClassesInput" type="text" placeholder="e.g. Form 1 East, Form 1 West" required />
             </label>
             <label>
               Subject
-              <select id="assignmentSubjectSelect" required></select>
+              <input id="teacherSubjectInput" type="text" placeholder="e.g. Mathematics" required />
             </label>
             <label>
-              Teacher
-              <select id="assignmentTeacherSelect" required></select>
+              Lessons per week
+              <input id="teacherPeriodsInput" type="number" min="1" max="12" value="4" required />
             </label>
-            <label>
-              Lessons/week
-              <input id="assignmentPeriodsInput" type="number" min="1" max="12" value="4" required />
+            <label class="wide-field">
+              Teacher unavailable slots
+              <input id="teacherUnavailableInput" type="text" placeholder="Optional: Monday P1, Friday P8" />
             </label>
-            <button type="submit">Add Assignment</button>
+            <button type="submit">Add Teacher Load</button>
           </form>
-          <div class="list assignment-list" id="assignmentsList"></div>
+          <div class="list" id="teacherLoadsList"></div>
         </div>
       </section>
 
@@ -131,7 +95,7 @@
           </div>
         </div>
         <div class="notice" id="notice">
-          Add your school details, then generate a timetable. A realistic sample is included for quick testing.
+          Add teacher loads, then generate a timetable. Use the sample button to test it quickly.
         </div>
         <div class="stats" id="stats"></div>
         <div class="timetable-area" id="timetableArea"></div>

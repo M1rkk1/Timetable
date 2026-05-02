@@ -114,7 +114,7 @@ button.secondary:hover {
   background: #eef3f5;
   border-bottom: 1px solid var(--line);
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .tab {
@@ -150,13 +150,17 @@ button.secondary:hover {
 }
 
 .form-grid,
-.assignment-form {
+.teacher-load-form {
   display: grid;
   gap: 14px;
 }
 
-.assignment-form {
+.teacher-load-form {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.wide-field {
+  grid-column: 1 / -1;
 }
 
 label {
@@ -188,10 +192,6 @@ select:focus {
   display: grid;
   gap: 10px;
   grid-template-columns: minmax(0, 1fr) auto;
-}
-
-#teacherForm {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
 }
 
 .list {
@@ -392,10 +392,13 @@ th:first-child {
 
   .header-actions,
   .inline-form,
-  #teacherForm,
-  .assignment-form,
+  .teacher-load-form,
   .stats {
     grid-template-columns: 1fr;
+  }
+
+  .wide-field {
+    grid-column: auto;
   }
 
   .header-actions {
