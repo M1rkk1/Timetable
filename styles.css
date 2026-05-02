@@ -150,13 +150,21 @@ button.secondary:hover {
 }
 
 .form-grid,
-.teacher-load-form {
+.teacher-load-form,
+.break-form {
   display: grid;
   gap: 14px;
 }
 
-.teacher-load-form {
+.teacher-load-form,
+.break-form {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.break-form {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 18px;
 }
 
 .wide-field {
@@ -393,6 +401,13 @@ th:first-child {
   text-align: center;
 }
 
+.break-cell span {
+  color: #946a2d;
+  display: inline-block;
+  font-size: 0.82rem;
+  margin-left: 8px;
+}
+
 @media (max-width: 980px) {
   .layout {
     grid-template-columns: 1fr;
@@ -417,6 +432,7 @@ th:first-child {
   .header-actions,
   .inline-form,
   .teacher-load-form,
+  .break-form,
   .stats {
     grid-template-columns: 1fr;
   }

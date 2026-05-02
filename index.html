@@ -57,6 +57,22 @@
               <input id="maxDailyInput" type="number" min="1" max="16" value="6" />
             </label>
           </div>
+          <form class="break-form" id="breakForm">
+            <label>
+              Break name
+              <input id="breakNameInput" type="text" placeholder="e.g. Tea Break" required />
+            </label>
+            <label>
+              Break time
+              <input id="breakTimeInput" type="text" placeholder="e.g. 10:00" required />
+            </label>
+            <label>
+              Duration
+              <input id="breakDurationInput" type="text" placeholder="e.g. 30 minutes" required />
+            </label>
+            <button type="submit">Add Break</button>
+          </form>
+          <div class="list" id="breaksList"></div>
         </div>
 
         <div class="tab-panel" id="loads">

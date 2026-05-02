@@ -3,6 +3,7 @@ const state = {
   teachers: [],
   subjects: [],
   loads: [],
+  breaks: [],
   generated: null,
 };
 
@@ -14,6 +15,11 @@ const els = {
   daysInput: document.querySelector("#daysInput"),
   timeSlotsInput: document.querySelector("#timeSlotsInput"),
   maxDailyInput: document.querySelector("#maxDailyInput"),
+  breakForm: document.querySelector("#breakForm"),
+  breakNameInput: document.querySelector("#breakNameInput"),
+  breakTimeInput: document.querySelector("#breakTimeInput"),
+  breakDurationInput: document.querySelector("#breakDurationInput"),
+  breaksList: document.querySelector("#breaksList"),
   teacherLoadForm: document.querySelector("#teacherLoadForm"),
   teacherNameInput: document.querySelector("#teacherNameInput"),
   teacherClassesInput: document.querySelector("#teacherClassesInput"),
@@ -73,6 +79,16 @@ function parseList(value) {
     .map(cleanName)
     .filter(Boolean);
   return [...new Map(names.map((name) => [name.toLowerCase(), name])).values()];
+}
+
+function normalizeTime(value) {
+  return cleanName(value).toLowerCase().replace(/\s/g, "");
+}
+
+function getTimeRange(label) {
+  const parts = label.split("-");
+  if (parts.length < 2) return { start: normalizeTime(label), end: normalizeTime(label) };
+  return { start: normalizeTime(parts[0]), end: normalizeTime(parts.slice(1).join("-")) };
 }
 
 function findOrCreate(collection, name, prefix, extra = {}) {
@@ -162,6 +178,50 @@ function rebuildCatalogs() {
   state.classes = state.classes.filter((item) => usedClassIds.has(item.id));
   state.teachers = state.teachers.filter((item) => usedTeacherIds.has(item.id));
   state.subjects = state.subjects.filter((item) => usedSubjectIds.has(item.id));
+}
+
+function renderBreaks() {
+  els.breaksList.innerHTML = "";
+  if (!state.breaks.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "No breaks added yet.";
+    els.breaksList.append(empty);
+    return;
+  }
+
+  state.breaks.forEach((breakItem) => {
+    const node = els.itemTemplate.content.firstElementChild.cloneNode(true);
+    node.querySelector("strong").textContent = breakItem.name;
+    node.querySelector("span").textContent = `${breakItem.time} - ${breakItem.duration}`;
+    node.querySelector("button").addEventListener("click", () => {
+      removeById(state.breaks, breakItem.id);
+      renderBreaks();
+      if (state.generated) renderTimetable(state.generated);
+    });
+    els.breaksList.append(node);
+  });
+}
+
+function addBreak({ name, time, duration }) {
+  const cleanBreak = {
+    id: uid("break"),
+    name: cleanName(name),
+    time: cleanName(time),
+    duration: cleanName(duration),
+  };
+  if (!cleanBreak.name || !cleanBreak.time || !cleanBreak.duration) return false;
+  const duplicate = state.breaks.some(
+    (breakItem) =>
+      normalizeTime(breakItem.time) === normalizeTime(cleanBreak.time) &&
+      breakItem.name.toLowerCase() === cleanBreak.name.toLowerCase(),
+  );
+  if (duplicate) {
+    showNotice("That break already exists.", "error");
+    return false;
+  }
+  state.breaks.push(cleanBreak);
+  return true;
 }
 
 function renderLoads() {
@@ -370,6 +430,29 @@ function updateManualCell(classId, day, row, field, value) {
   state.generated.schedule[classId][day][row] = manual.subjectName || manual.teacherName ? manual : null;
 }
 
+function getBreaksForRow(rowLabel, renderedBreakIds) {
+  const range = getTimeRange(rowLabel);
+  const rowStart = range.start;
+  const rowEnd = range.end;
+  return state.breaks.filter((breakItem) => {
+    if (renderedBreakIds.has(breakItem.id)) return false;
+    const breakTime = normalizeTime(breakItem.time);
+    return breakTime === rowStart || breakTime === rowEnd;
+  });
+}
+
+function getUnrenderedBreaks(renderedBreakIds) {
+  return state.breaks.filter((breakItem) => !renderedBreakIds.has(breakItem.id));
+}
+
+function createBreakRow(breakItem, columnCount) {
+  const breakRow = document.createElement("tr");
+  breakRow.innerHTML =
+    `<td class="break-cell" colspan="${columnCount}">${escapeHtml(breakItem.name)}` +
+    `<span>${escapeHtml(breakItem.time)} - ${escapeHtml(breakItem.duration)}</span></td>`;
+  return breakRow;
+}
+
 function renderTimetable(result) {
   els.timetableArea.innerHTML = "";
   els.stats.innerHTML = "";
@@ -415,7 +498,13 @@ function renderTimetable(result) {
     table.append(thead);
 
     const tbody = document.createElement("tbody");
+    const renderedBreakIds = new Set();
     for (let rowIndex = 0; rowIndex < result.timeSlots.length; rowIndex += 1) {
+      getBreaksForRow(result.timeSlots[rowIndex], renderedBreakIds).forEach((breakItem) => {
+        tbody.append(createBreakRow(breakItem, result.days.length + 1));
+        renderedBreakIds.add(breakItem.id);
+      });
+
       const rowNumber = rowIndex + 1;
       const row = document.createElement("tr");
       const label = document.createElement("th");
@@ -443,6 +532,9 @@ function renderTimetable(result) {
       });
       tbody.append(row);
     }
+    getUnrenderedBreaks(renderedBreakIds).forEach((breakItem) => {
+      tbody.append(createBreakRow(breakItem, result.days.length + 1));
+    });
     table.append(tbody);
     wrapper.append(table);
     els.timetableArea.append(wrapper);
@@ -459,8 +551,15 @@ function exportCsv() {
   const rows = [["Class", "Column", "Time", "Subject", "Teacher"]];
   const tableClasses = state.classes.length ? state.classes : [{ id: "manual-class", name: "Timetable" }];
   tableClasses.forEach((classItem) => {
+    const renderedBreakIds = new Set();
     state.generated.days.forEach((day) => {
       for (let rowIndex = 0; rowIndex < state.generated.timeSlots.length; rowIndex += 1) {
+        if (day === state.generated.days[0]) {
+          getBreaksForRow(state.generated.timeSlots[rowIndex], renderedBreakIds).forEach((breakItem) => {
+            rows.push([classItem.name, "All", breakItem.time, breakItem.name, breakItem.duration]);
+            renderedBreakIds.add(breakItem.id);
+          });
+        }
         const rowNumber = rowIndex + 1;
         const task = state.generated.schedule[classItem.id][day][rowNumber];
         const detail = lookupTask(task);
@@ -472,6 +571,9 @@ function exportCsv() {
           detail && detail.teacher ? detail.teacher.name : "",
         ]);
       }
+    });
+    getUnrenderedBreaks(renderedBreakIds).forEach((breakItem) => {
+      rows.push([classItem.name, "All", breakItem.time, breakItem.name, breakItem.duration]);
     });
   });
   const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -498,13 +600,17 @@ function clearAll() {
   state.teachers = [];
   state.subjects = [];
   state.loads = [];
+  state.breaks = [];
   resetOutput();
   showNotice("Add teacher loads, then use AI Generate to place subjects into the timetable automatically.");
+  renderBreaks();
   renderLoads();
 }
 
 function loadSample() {
   clearAll();
+  addBreak({ name: "Tea Break", time: "10:00", duration: "30 minutes" });
+  addBreak({ name: "Lunch Break", time: "12:30", duration: "1 hour 30 minutes" });
   [
     ["Ms. Achieng", "Form 1 East, Form 1 West, Form 2 East", "Mathematics", "Friday P8"],
     ["Mr. Kamau", "Form 1 East, Form 1 West, Form 2 East", "English", "Monday P1"],
@@ -520,12 +626,30 @@ function loadSample() {
     });
   });
   renderLoads();
+  renderBreaks();
   showNotice("Sample teacher loads added. Press AI Generate to create a timetable.", "success");
 }
 
 checkRequiredElements();
 
 forEachNode(els.tabs, (tab) => tab.addEventListener("click", () => setActiveTab(tab.dataset.tab)));
+
+els.breakForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const added = addBreak({
+    name: els.breakNameInput.value,
+    time: els.breakTimeInput.value,
+    duration: els.breakDurationInput.value,
+  });
+  if (added) {
+    els.breakNameInput.value = "";
+    els.breakTimeInput.value = "";
+    els.breakDurationInput.value = "";
+    renderBreaks();
+    if (state.generated) renderTimetable(state.generated);
+    showNotice("Break added to the timetable skeleton.", "success");
+  }
+});
 
 els.teacherLoadForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -558,4 +682,5 @@ els.printButton.addEventListener("click", () => window.print());
 els.clearButton.addEventListener("click", clearAll);
 els.loadSampleButton.addEventListener("click", loadSample);
 
+renderBreaks();
 renderLoads();
