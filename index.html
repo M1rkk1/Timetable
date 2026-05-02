@@ -29,7 +29,7 @@
         <div class="tab-panel active" id="basics">
           <div class="panel-heading">
             <h2>Timetable Skeleton</h2>
-            <p>Choose the number of columns and rows, then name the days and time slots.</p>
+            <p>Choose the columns, lesson count, start time, and lesson duration. Breaks are inserted by time.</p>
           </div>
           <div class="form-grid">
             <label>
@@ -37,7 +37,7 @@
               <input id="columnsInput" type="number" min="1" max="10" value="5" />
             </label>
             <label>
-              Rows
+              Lessons per day
               <input id="rowsInput" type="number" min="1" max="16" value="8" />
             </label>
             <label class="wide-field">
@@ -45,12 +45,12 @@
               <input id="daysInput" type="text" value="Monday, Tuesday, Wednesday, Thursday, Friday" />
             </label>
             <label class="wide-field">
-              Time rows
-              <input
-                id="timeSlotsInput"
-                type="text"
-                value="8:00-8:40, 8:40-9:20, 9:20-10:00, 10:30-11:10, 11:10-11:50, 11:50-12:30, 2:00-2:40, 2:40-3:20"
-              />
+              Start time
+              <input id="startTimeInput" type="time" value="08:00" />
+            </label>
+            <label>
+              Lesson duration
+              <input id="lessonDurationInput" type="number" min="5" max="180" value="40" />
             </label>
             <label>
               Max teacher rows per day
@@ -64,11 +64,11 @@
             </label>
             <label>
               Break time
-              <input id="breakTimeInput" type="text" placeholder="e.g. 10:00" required />
+              <input id="breakTimeInput" type="time" value="10:00" required />
             </label>
             <label>
-              Duration
-              <input id="breakDurationInput" type="text" placeholder="e.g. 30 minutes" required />
+              Duration minutes
+              <input id="breakDurationInput" type="number" min="1" max="180" value="30" required />
             </label>
             <button type="submit">Add Break</button>
           </form>
@@ -95,7 +95,7 @@
             </label>
             <label class="wide-field">
               Teacher unavailable times
-              <input id="teacherUnavailableInput" type="text" placeholder="Optional: Monday 8:00-8:40, Friday 2:40-3:20" />
+              <input id="teacherUnavailableInput" type="text" placeholder="Optional: Monday 08:00-08:40, Friday 14:40-15:20" />
             </label>
             <button type="submit">Add Teacher Load</button>
           </form>

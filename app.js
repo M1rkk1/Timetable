@@ -13,7 +13,8 @@ const els = {
   columnsInput: document.querySelector("#columnsInput"),
   rowsInput: document.querySelector("#rowsInput"),
   daysInput: document.querySelector("#daysInput"),
-  timeSlotsInput: document.querySelector("#timeSlotsInput"),
+  startTimeInput: document.querySelector("#startTimeInput"),
+  lessonDurationInput: document.querySelector("#lessonDurationInput"),
   maxDailyInput: document.querySelector("#maxDailyInput"),
   breakForm: document.querySelector("#breakForm"),
   breakNameInput: document.querySelector("#breakNameInput"),
@@ -85,10 +86,40 @@ function normalizeTime(value) {
   return cleanName(value).toLowerCase().replace(/\s/g, "");
 }
 
-function getTimeRange(label) {
-  const parts = label.split("-");
-  if (parts.length < 2) return { start: normalizeTime(label), end: normalizeTime(label) };
-  return { start: normalizeTime(parts[0]), end: normalizeTime(parts.slice(1).join("-")) };
+function parseTimeToMinutes(value) {
+  const clean = normalizeTime(value);
+  const match = clean.match(/^(\d{1,2}):?(\d{2})?(am|pm)?$/);
+  if (!match) return null;
+  let hours = Number(match[1]);
+  const minutes = match[2] === undefined ? 0 : Number(match[2]);
+  const meridiem = match[3];
+  if (meridiem === "pm" && hours < 12) hours += 12;
+  if (meridiem === "am" && hours === 12) hours = 0;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function formatMinutes(totalMinutes) {
+  const minutesInDay = 24 * 60;
+  const wrapped = ((totalMinutes % minutesInDay) + minutesInDay) % minutesInDay;
+  const hours = Math.floor(wrapped / 60);
+  const minutes = wrapped % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function formatDuration(minutes) {
+  return `${minutes} min`;
+}
+
+function getSortedBreaks() {
+  return state.breaks
+    .map((breakItem) => ({
+      ...breakItem,
+      startMinutes: parseTimeToMinutes(breakItem.time),
+      durationMinutes: Number(breakItem.duration),
+    }))
+    .filter((breakItem) => breakItem.startMinutes !== null && breakItem.durationMinutes > 0)
+    .sort((a, b) => a.startMinutes - b.startMinutes);
 }
 
 function findOrCreate(collection, name, prefix, extra = {}) {
@@ -111,11 +142,29 @@ function parseDays() {
 
 function parseTimeSlots() {
   const rowCount = Number(els.rowsInput.value);
-  const labels = parseList(els.timeSlotsInput.value);
+  const lessonDuration = Number(els.lessonDurationInput.value);
+  const startMinutes = parseTimeToMinutes(els.startTimeInput.value);
+  const labels = [];
+  let current = startMinutes === null ? 8 * 60 : startMinutes;
+  const sortedBreaks = getSortedBreaks();
+  let breakIndex = 0;
+
   while (labels.length < rowCount) {
-    labels.push(`Time ${labels.length + 1}`);
+    while (breakIndex < sortedBreaks.length && sortedBreaks[breakIndex].startMinutes <= current) {
+      current = Math.max(
+        current,
+        sortedBreaks[breakIndex].startMinutes + sortedBreaks[breakIndex].durationMinutes,
+      );
+      breakIndex += 1;
+    }
+    labels.push({
+      label: `${formatMinutes(current)}-${formatMinutes(current + lessonDuration)}`,
+      startMinutes: current,
+      endMinutes: current + lessonDuration,
+    });
+    current += lessonDuration;
   }
-  return labels.slice(0, rowCount);
+  return labels;
 }
 
 function slotKey(day, row) {
@@ -131,7 +180,7 @@ function parseUnavailable(value, days, timeSlots) {
     days.forEach((day) => {
       if (!lowered.startsWith(day.toLowerCase())) return;
       const timeText = cleanName(token.slice(day.length));
-      const row = timeSlots.findIndex((slot) => slot.toLowerCase() === timeText.toLowerCase()) + 1;
+      const row = timeSlots.findIndex((slot) => slot.label.toLowerCase() === timeText.toLowerCase()) + 1;
       if (dayLookup.get(day.toLowerCase()) && row > 0) unavailable.add(slotKey(day, row));
     });
   });
@@ -193,7 +242,7 @@ function renderBreaks() {
   state.breaks.forEach((breakItem) => {
     const node = els.itemTemplate.content.firstElementChild.cloneNode(true);
     node.querySelector("strong").textContent = breakItem.name;
-    node.querySelector("span").textContent = `${breakItem.time} - ${breakItem.duration}`;
+    node.querySelector("span").textContent = `${breakItem.time} - ${formatDuration(breakItem.duration)}`;
     node.querySelector("button").addEventListener("click", () => {
       removeById(state.breaks, breakItem.id);
       renderBreaks();
@@ -204,13 +253,14 @@ function renderBreaks() {
 }
 
 function addBreak({ name, time, duration }) {
+  const durationMinutes = Number(duration);
   const cleanBreak = {
     id: uid("break"),
     name: cleanName(name),
     time: cleanName(time),
-    duration: cleanName(duration),
+    duration: durationMinutes,
   };
-  if (!cleanBreak.name || !cleanBreak.time || !cleanBreak.duration) return false;
+  if (!cleanBreak.name || parseTimeToMinutes(cleanBreak.time) === null || durationMinutes < 1) return false;
   const duplicate = state.breaks.some(
     (breakItem) =>
       normalizeTime(breakItem.time) === normalizeTime(cleanBreak.time) &&
@@ -295,8 +345,11 @@ function buildOptions() {
 
 function validateSetup(days, timeSlots, maxDaily, options) {
   const errors = [];
+  const lessonDuration = Number(els.lessonDurationInput.value);
   if (days.length < 1) errors.push("Add at least one timetable column.");
   if (timeSlots.length < 1) errors.push("Add at least one timetable row.");
+  if (parseTimeToMinutes(els.startTimeInput.value) === null) errors.push("Add a valid school start time.");
+  if (lessonDuration < 5 || lessonDuration > 180) errors.push("Lesson duration must be between 5 and 180 minutes.");
   if (maxDaily < 1 || maxDaily > timeSlots.length) errors.push("Max teacher periods per day must fit inside the rows.");
   state.classes.forEach((classItem) => {
     const hasSubjects = options.some((option) => option.classId === classItem.id);
@@ -400,7 +453,7 @@ function generateTimetable() {
     });
   });
 
-  return { schedule, days, timeSlots, tasks: placements };
+  return { schedule, days, timeSlots, timeline: buildTimeline(timeSlots), tasks: placements };
 }
 
 function lookupTask(task) {
@@ -430,27 +483,31 @@ function updateManualCell(classId, day, row, field, value) {
   state.generated.schedule[classId][day][row] = manual.subjectName || manual.teacherName ? manual : null;
 }
 
-function getBreaksForRow(rowLabel, renderedBreakIds) {
-  const range = getTimeRange(rowLabel);
-  const rowStart = range.start;
-  const rowEnd = range.end;
-  return state.breaks.filter((breakItem) => {
-    if (renderedBreakIds.has(breakItem.id)) return false;
-    const breakTime = normalizeTime(breakItem.time);
-    return breakTime === rowStart || breakTime === rowEnd;
-  });
-}
-
-function getUnrenderedBreaks(renderedBreakIds) {
-  return state.breaks.filter((breakItem) => !renderedBreakIds.has(breakItem.id));
-}
-
 function createBreakRow(breakItem, columnCount) {
+  const endMinutes = breakItem.startMinutes + breakItem.durationMinutes;
   const breakRow = document.createElement("tr");
   breakRow.innerHTML =
     `<td class="break-cell" colspan="${columnCount}">${escapeHtml(breakItem.name)}` +
-    `<span>${escapeHtml(breakItem.time)} - ${escapeHtml(breakItem.duration)}</span></td>`;
+    `<span>${escapeHtml(formatMinutes(breakItem.startMinutes))}-${escapeHtml(formatMinutes(endMinutes))} (${escapeHtml(formatDuration(breakItem.durationMinutes))})</span></td>`;
   return breakRow;
+}
+
+function buildTimeline(timeSlots) {
+  const entries = [];
+  const breaks = getSortedBreaks();
+  let breakIndex = 0;
+  timeSlots.forEach((slot, index) => {
+    while (breakIndex < breaks.length && breaks[breakIndex].startMinutes <= slot.startMinutes) {
+      entries.push({ type: "break", breakItem: breaks[breakIndex] });
+      breakIndex += 1;
+    }
+    entries.push({ type: "lesson", slot, rowNumber: index + 1 });
+  });
+  while (breakIndex < breaks.length) {
+    entries.push({ type: "break", breakItem: breaks[breakIndex] });
+    breakIndex += 1;
+  }
+  return entries;
 }
 
 function renderTimetable(result) {
@@ -498,17 +555,16 @@ function renderTimetable(result) {
     table.append(thead);
 
     const tbody = document.createElement("tbody");
-    const renderedBreakIds = new Set();
-    for (let rowIndex = 0; rowIndex < result.timeSlots.length; rowIndex += 1) {
-      getBreaksForRow(result.timeSlots[rowIndex], renderedBreakIds).forEach((breakItem) => {
-        tbody.append(createBreakRow(breakItem, result.days.length + 1));
-        renderedBreakIds.add(breakItem.id);
-      });
+    result.timeline.forEach((entry) => {
+      if (entry.type === "break") {
+        tbody.append(createBreakRow(entry.breakItem, result.days.length + 1));
+        return;
+      }
 
-      const rowNumber = rowIndex + 1;
+      const rowNumber = entry.rowNumber;
       const row = document.createElement("tr");
       const label = document.createElement("th");
-      label.textContent = result.timeSlots[rowIndex];
+      label.textContent = entry.slot.label;
       row.append(label);
       result.days.forEach((day) => {
         const cell = document.createElement("td");
@@ -531,9 +587,6 @@ function renderTimetable(result) {
         row.append(cell);
       });
       tbody.append(row);
-    }
-    getUnrenderedBreaks(renderedBreakIds).forEach((breakItem) => {
-      tbody.append(createBreakRow(breakItem, result.days.length + 1));
     });
     table.append(tbody);
     wrapper.append(table);
@@ -551,29 +604,32 @@ function exportCsv() {
   const rows = [["Class", "Column", "Time", "Subject", "Teacher"]];
   const tableClasses = state.classes.length ? state.classes : [{ id: "manual-class", name: "Timetable" }];
   tableClasses.forEach((classItem) => {
-    const renderedBreakIds = new Set();
-    state.generated.days.forEach((day) => {
-      for (let rowIndex = 0; rowIndex < state.generated.timeSlots.length; rowIndex += 1) {
-        if (day === state.generated.days[0]) {
-          getBreaksForRow(state.generated.timeSlots[rowIndex], renderedBreakIds).forEach((breakItem) => {
-            rows.push([classItem.name, "All", breakItem.time, breakItem.name, breakItem.duration]);
-            renderedBreakIds.add(breakItem.id);
-          });
-        }
-        const rowNumber = rowIndex + 1;
+    state.generated.timeline.forEach((entry) => {
+      if (entry.type === "break") {
+        rows.push([
+          classItem.name,
+          "All",
+          `${formatMinutes(entry.breakItem.startMinutes)}-${formatMinutes(
+            entry.breakItem.startMinutes + entry.breakItem.durationMinutes,
+          )}`,
+          entry.breakItem.name,
+          formatDuration(entry.breakItem.durationMinutes),
+        ]);
+        return;
+      }
+
+      state.generated.days.forEach((day) => {
+        const rowNumber = entry.rowNumber;
         const task = state.generated.schedule[classItem.id][day][rowNumber];
         const detail = lookupTask(task);
         rows.push([
           classItem.name,
           day,
-          state.generated.timeSlots[rowIndex],
+          entry.slot.label,
           detail && detail.subject ? detail.subject.name : "",
           detail && detail.teacher ? detail.teacher.name : "",
         ]);
-      }
-    });
-    getUnrenderedBreaks(renderedBreakIds).forEach((breakItem) => {
-      rows.push([classItem.name, "All", breakItem.time, breakItem.name, breakItem.duration]);
+      });
     });
   });
   const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -609,8 +665,8 @@ function clearAll() {
 
 function loadSample() {
   clearAll();
-  addBreak({ name: "Tea Break", time: "10:00", duration: "30 minutes" });
-  addBreak({ name: "Lunch Break", time: "12:30", duration: "1 hour 30 minutes" });
+  addBreak({ name: "Tea Break", time: "10:00", duration: 30 });
+  addBreak({ name: "Lunch Break", time: "12:30", duration: 90 });
   [
     ["Ms. Achieng", "Form 1 East, Form 1 West, Form 2 East", "Mathematics", "Friday P8"],
     ["Mr. Kamau", "Form 1 East, Form 1 West, Form 2 East", "English", "Monday P1"],
