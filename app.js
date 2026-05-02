@@ -31,8 +31,27 @@ const els = {
   resultTitle: document.querySelector("#resultTitle"),
 };
 
+function checkRequiredElements() {
+  const missing = [];
+  Object.keys(els).forEach((name) => {
+    const element = els[name];
+    if (element && typeof element.length === "number" && typeof element.forEach === "function") {
+      if (element.length === 0) missing.push(name);
+      return;
+    }
+    if (!element) missing.push(name);
+  });
+
+  if (missing.length) {
+    throw new Error(`Missing page elements: ${missing.join(", ")}`);
+  }
+}
+
 function uid(prefix) {
-  return `${prefix}-${crypto.randomUUID()}`;
+  if (window.crypto && typeof window.crypto.randomUUID === "function") {
+    return `${prefix}-${window.crypto.randomUUID()}`;
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function cleanName(value) {
@@ -83,9 +102,13 @@ function showNotice(message, type = "") {
   els.notice.textContent = message;
 }
 
+function forEachNode(nodes, callback) {
+  Array.prototype.forEach.call(nodes, callback);
+}
+
 function setActiveTab(id) {
-  els.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === id));
-  els.tabPanels.forEach((panel) => panel.classList.toggle("active", panel.id === id));
+  forEachNode(els.tabs, (tab) => tab.classList.toggle("active", tab.dataset.tab === id));
+  forEachNode(els.tabPanels, (panel) => panel.classList.toggle("active", panel.id === id));
 }
 
 function removeById(collection, id) {
@@ -95,7 +118,10 @@ function removeById(collection, id) {
 
 function getClassNames(load) {
   return load.classIds
-    .map((id) => state.classes.find((classItem) => classItem.id === id)?.name)
+    .map((id) => {
+      const classItem = state.classes.find((item) => item.id === id);
+      return classItem ? classItem.name : "";
+    })
     .filter(Boolean);
 }
 
@@ -127,10 +153,10 @@ function renderLoads() {
     const teacher = state.teachers.find((item) => item.id === load.teacherId);
     const subject = state.subjects.find((item) => item.id === load.subjectId);
     const node = els.itemTemplate.content.firstElementChild.cloneNode(true);
-    node.querySelector("strong").textContent = `${teacher?.name || "Teacher"} - ${subject?.name || "Subject"}`;
+    node.querySelector("strong").textContent = `${teacher ? teacher.name : "Teacher"} - ${subject ? subject.name : "Subject"}`;
     node.querySelector("span").textContent =
       `${getClassNames(load).join(", ")}` +
-      (teacher?.unavailableText ? ` - Unavailable: ${teacher.unavailableText}` : "");
+      (teacher && teacher.unavailableText ? ` - Unavailable: ${teacher.unavailableText}` : "");
     node.querySelector("button").addEventListener("click", () => {
       removeById(state.loads, load.id);
       rebuildCatalogs();
@@ -146,9 +172,12 @@ function addTeacherLoad({ teacherName, classNames, subjectName, unavailableText 
   const classes = classNames.map((name) => findOrCreate(state.classes, name, "class"));
   if (unavailableText) teacher.unavailableText = cleanName(unavailableText);
 
-  const occupiedClasses = state.loads.flatMap((load) =>
-    load.subjectId === subject.id ? load.classIds : [],
-  );
+  const occupiedClasses = [];
+  state.loads.forEach((load) => {
+    if (load.subjectId === subject.id) {
+      load.classIds.forEach((classId) => occupiedClasses.push(classId));
+    }
+  });
   const repeatedClass = classes.find((classItem) => occupiedClasses.includes(classItem.id));
   if (repeatedClass) {
     showNotice(`${subject.name} is already assigned for ${repeatedClass.name}. Remove that load first.`, "error");
@@ -249,10 +278,11 @@ function generateTimetable() {
     const previous = period > 1 ? schedule[option.classId][day][period - 1] : null;
     if (schedule[option.classId][day][period]) return false;
     if (teacherBooked.get(`${option.teacherId}::${key}`)) return false;
-    if (teacherUnavailable.get(option.teacherId)?.has(key)) return false;
+    const unavailable = teacherUnavailable.get(option.teacherId);
+    if (unavailable && unavailable.has(key)) return false;
     if ((teacherDailyLoad.get(`${option.teacherId}::${day}`) || 0) >= maxDaily) return false;
     if ((classSubjectDaily.get(`${option.classId}::${option.subjectId}::${day}`) || 0) >= 2) return false;
-    if (previous?.subjectId === option.subjectId) return false;
+    if (previous && previous.subjectId === option.subjectId) return false;
     return true;
   }
 
@@ -284,7 +314,7 @@ function generateTimetable() {
           });
         if (candidates.length) place(candidates[0], day, period);
       }
-    }
+    });
   });
 
   return { schedule, days, periodsPerDay, breakAfter, tasks: placements };
@@ -382,11 +412,17 @@ function exportCsv() {
       for (let period = 1; period <= state.generated.periodsPerDay; period += 1) {
         const task = state.generated.schedule[classItem.id][day][period];
         const detail = lookupTask(task);
-        rows.push([classItem.name, day, `P${period}`, detail?.subject.name || "", detail?.teacher.name || ""]);
+        rows.push([
+          classItem.name,
+          day,
+          `P${period}`,
+          detail && detail.subject ? detail.subject.name : "",
+          detail && detail.teacher ? detail.teacher.name : "",
+        ]);
       }
     });
   });
-  const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
+  const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -435,7 +471,9 @@ function loadSample() {
   showNotice("Sample teacher loads added. Press AI Generate to create a timetable.", "success");
 }
 
-els.tabs.forEach((tab) => tab.addEventListener("click", () => setActiveTab(tab.dataset.tab)));
+checkRequiredElements();
+
+forEachNode(els.tabs, (tab) => tab.addEventListener("click", () => setActiveTab(tab.dataset.tab)));
 
 els.teacherLoadForm.addEventListener("submit", (event) => {
   event.preventDefault();
