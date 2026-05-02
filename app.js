@@ -17,7 +17,6 @@ const els = {
   teacherNameInput: document.querySelector("#teacherNameInput"),
   teacherClassesInput: document.querySelector("#teacherClassesInput"),
   teacherSubjectInput: document.querySelector("#teacherSubjectInput"),
-  teacherPeriodsInput: document.querySelector("#teacherPeriodsInput"),
   teacherUnavailableInput: document.querySelector("#teacherUnavailableInput"),
   teacherLoadsList: document.querySelector("#teacherLoadsList"),
   itemTemplate: document.querySelector("#itemTemplate"),
@@ -130,7 +129,7 @@ function renderLoads() {
     const node = els.itemTemplate.content.firstElementChild.cloneNode(true);
     node.querySelector("strong").textContent = `${teacher?.name || "Teacher"} - ${subject?.name || "Subject"}`;
     node.querySelector("span").textContent =
-      `${getClassNames(load).join(", ")} - ${load.periodsPerWeek} lessons/week` +
+      `${getClassNames(load).join(", ")}` +
       (teacher?.unavailableText ? ` - Unavailable: ${teacher.unavailableText}` : "");
     node.querySelector("button").addEventListener("click", () => {
       removeById(state.loads, load.id);
@@ -141,7 +140,7 @@ function renderLoads() {
   });
 }
 
-function addTeacherLoad({ teacherName, classNames, subjectName, periodsPerWeek, unavailableText }) {
+function addTeacherLoad({ teacherName, classNames, subjectName, unavailableText }) {
   const teacher = findOrCreate(state.teachers, teacherName, "teacher", { unavailableText: "" });
   const subject = findOrCreate(state.subjects, subjectName, "subject");
   const classes = classNames.map((name) => findOrCreate(state.classes, name, "class"));
@@ -161,61 +160,49 @@ function addTeacherLoad({ teacherName, classNames, subjectName, periodsPerWeek, 
     teacherId: teacher.id,
     subjectId: subject.id,
     classIds: classes.map((classItem) => classItem.id),
-    periodsPerWeek,
   });
   return true;
 }
 
-function buildAssignments() {
-  const assignments = [];
+function buildOptions() {
+  const options = [];
   state.loads.forEach((load) => {
     load.classIds.forEach((classId) => {
-      assignments.push({
+      options.push({
         id: `${load.id}-${classId}`,
         classId,
         subjectId: load.subjectId,
         teacherId: load.teacherId,
-        periodsPerWeek: load.periodsPerWeek,
       });
     });
   });
-  return assignments;
+  return options;
 }
 
-function validateSetup(days, periodsPerDay, breakAfter, maxDaily, assignments) {
+function validateSetup(days, periodsPerDay, breakAfter, maxDaily, options) {
   const errors = [];
   if (days.length < 1) errors.push("Add at least one teaching day.");
   if (periodsPerDay < 1 || periodsPerDay > 12) errors.push("Periods per day must be between 1 and 12.");
   if (breakAfter < 0 || breakAfter > periodsPerDay) errors.push("Break after period must fit inside the day.");
   if (maxDaily < 1 || maxDaily > periodsPerDay) errors.push("Max teacher periods per day must fit inside the day.");
   if (!state.loads.length) errors.push("Add at least one teacher load.");
-
-  const capacity = days.length * periodsPerDay;
   state.classes.forEach((classItem) => {
-    const required = assignments
-      .filter((assignment) => assignment.classId === classItem.id)
-      .reduce((total, assignment) => total + assignment.periodsPerWeek, 0);
-    if (required > capacity) {
-      errors.push(`${classItem.name} needs ${required} lessons but only has ${capacity} slots.`);
+    const hasSubjects = options.some((option) => option.classId === classItem.id);
+    if (!hasSubjects) {
+      errors.push(`${classItem.name} has no subjects assigned.`);
     }
   });
 
   return errors;
 }
 
-function buildTasks(assignments) {
-  const tasks = [];
-  assignments.forEach((assignment) => {
-    for (let index = 0; index < assignment.periodsPerWeek; index += 1) {
-      tasks.push({
-        id: `${assignment.id}-${index}`,
-        classId: assignment.classId,
-        subjectId: assignment.subjectId,
-        teacherId: assignment.teacherId,
-      });
-    }
-  });
-  return tasks;
+function shuffle(items) {
+  const copy = [...items];
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+  }
+  return copy;
 }
 
 function createEmptySchedule(days, periodsPerDay) {
@@ -237,8 +224,8 @@ function generateTimetable() {
   const periodsPerDay = Number(els.periodsInput.value);
   const breakAfter = Number(els.breakInput.value);
   const maxDaily = Number(els.maxDailyInput.value);
-  const assignments = buildAssignments();
-  const errors = validateSetup(days, periodsPerDay, breakAfter, maxDaily, assignments);
+  const options = buildOptions();
+  const errors = validateSetup(days, periodsPerDay, breakAfter, maxDaily, options);
 
   if (errors.length) {
     showNotice(errors.join(" "), "error");
@@ -255,89 +242,52 @@ function generateTimetable() {
   const teacherBooked = new Map();
   const teacherDailyLoad = new Map();
   const classSubjectDaily = new Map();
-  const tasks = buildTasks(assignments).sort((a, b) => {
-    const teacherLoadA = assignments
-      .filter((assignment) => assignment.teacherId === a.teacherId)
-      .reduce((total, assignment) => total + assignment.periodsPerWeek, 0);
-    const teacherLoadB = assignments
-      .filter((assignment) => assignment.teacherId === b.teacherId)
-      .reduce((total, assignment) => total + assignment.periodsPerWeek, 0);
-    return teacherLoadB - teacherLoadA;
-  });
+  const placements = [];
 
-  function canPlace(task, day, period) {
+  function canPlace(option, day, period) {
     const key = slotKey(day, period);
-    if (schedule[task.classId][day][period]) return false;
-    if (teacherBooked.get(`${task.teacherId}::${key}`)) return false;
-    if (teacherUnavailable.get(task.teacherId)?.has(key)) return false;
-    if ((teacherDailyLoad.get(`${task.teacherId}::${day}`) || 0) >= maxDaily) return false;
-    if ((classSubjectDaily.get(`${task.classId}::${task.subjectId}::${day}`) || 0) >= 2) return false;
+    const previous = period > 1 ? schedule[option.classId][day][period - 1] : null;
+    if (schedule[option.classId][day][period]) return false;
+    if (teacherBooked.get(`${option.teacherId}::${key}`)) return false;
+    if (teacherUnavailable.get(option.teacherId)?.has(key)) return false;
+    if ((teacherDailyLoad.get(`${option.teacherId}::${day}`) || 0) >= maxDaily) return false;
+    if ((classSubjectDaily.get(`${option.classId}::${option.subjectId}::${day}`) || 0) >= 2) return false;
+    if (previous?.subjectId === option.subjectId) return false;
     return true;
   }
 
-  function place(task, day, period) {
+  function place(option, day, period) {
     const key = slotKey(day, period);
-    schedule[task.classId][day][period] = task;
-    teacherBooked.set(`${task.teacherId}::${key}`, true);
-    teacherDailyLoad.set(`${task.teacherId}::${day}`, (teacherDailyLoad.get(`${task.teacherId}::${day}`) || 0) + 1);
+    const placement = { ...option, id: `${option.id}-${day}-${period}` };
+    schedule[option.classId][day][period] = placement;
+    teacherBooked.set(`${option.teacherId}::${key}`, true);
+    teacherDailyLoad.set(`${option.teacherId}::${day}`, (teacherDailyLoad.get(`${option.teacherId}::${day}`) || 0) + 1);
     classSubjectDaily.set(
-      `${task.classId}::${task.subjectId}::${day}`,
-      (classSubjectDaily.get(`${task.classId}::${task.subjectId}::${day}`) || 0) + 1,
+      `${option.classId}::${option.subjectId}::${day}`,
+      (classSubjectDaily.get(`${option.classId}::${option.subjectId}::${day}`) || 0) + 1,
     );
+    placements.push(placement);
   }
 
-  function unplace(task, day, period) {
-    const key = slotKey(day, period);
-    schedule[task.classId][day][period] = null;
-    teacherBooked.delete(`${task.teacherId}::${key}`);
-    teacherDailyLoad.set(`${task.teacherId}::${day}`, teacherDailyLoad.get(`${task.teacherId}::${day}`) - 1);
-    classSubjectDaily.set(
-      `${task.classId}::${task.subjectId}::${day}`,
-      classSubjectDaily.get(`${task.classId}::${task.subjectId}::${day}`) - 1,
-    );
-  }
-
-  function candidateSlots(task) {
-    const slots = [];
+  shuffle(state.classes).forEach((classItem) => {
     days.forEach((day) => {
       for (let period = 1; period <= periodsPerDay; period += 1) {
-        if (canPlace(task, day, period)) slots.push({ day, period });
+        const classOptions = options.filter((option) => option.classId === classItem.id);
+        const candidates = shuffle(classOptions)
+          .filter((option) => canPlace(option, day, period))
+          .sort((a, b) => {
+            const aSubjectLoad = classSubjectDaily.get(`${a.classId}::${a.subjectId}::${day}`) || 0;
+            const bSubjectLoad = classSubjectDaily.get(`${b.classId}::${b.subjectId}::${day}`) || 0;
+            const aTeacherLoad = teacherDailyLoad.get(`${a.teacherId}::${day}`) || 0;
+            const bTeacherLoad = teacherDailyLoad.get(`${b.teacherId}::${day}`) || 0;
+            return aSubjectLoad - bSubjectLoad || aTeacherLoad - bTeacherLoad;
+          });
+        if (candidates.length) place(candidates[0], day, period);
       }
-    });
-    return slots.sort((a, b) => {
-      const loadA = teacherDailyLoad.get(`${task.teacherId}::${a.day}`) || 0;
-      const loadB = teacherDailyLoad.get(`${task.teacherId}::${b.day}`) || 0;
-      return loadA - loadB || a.period - b.period;
-    });
-  }
-
-  function solve(index = 0) {
-    if (index === tasks.length) return true;
-    const remaining = tasks.slice(index);
-    remaining.sort((a, b) => candidateSlots(a).length - candidateSlots(b).length);
-    const task = remaining[0];
-    const originalIndex = tasks.findIndex((entry, taskIndex) => taskIndex >= index && entry.id === task.id);
-    [tasks[index], tasks[originalIndex]] = [tasks[originalIndex], tasks[index]];
-
-    for (const slot of candidateSlots(task)) {
-      place(task, slot.day, slot.period);
-      if (solve(index + 1)) return true;
-      unplace(task, slot.day, slot.period);
     }
+  });
 
-    [tasks[index], tasks[originalIndex]] = [tasks[originalIndex], tasks[index]];
-    return false;
-  }
-
-  if (!solve()) {
-    showNotice(
-      "A conflict-free timetable could not be found. Try increasing periods, lowering lessons, or relaxing teacher availability.",
-      "error",
-    );
-    return null;
-  }
-
-  return { schedule, days, periodsPerDay, breakAfter, tasks };
+  return { schedule, days, periodsPerDay, breakAfter, tasks: placements };
 }
 
 function lookupTask(task) {
@@ -421,7 +371,7 @@ function renderTimetable(result) {
   els.resultTitle.textContent = "Timetable generated";
   els.exportButton.disabled = false;
   els.printButton.disabled = false;
-  showNotice("Conflict-free timetable generated. Review it by class, then export or print.", "success");
+  showNotice("AI timetable generated. Blank spaces mean no safe subject fit that period.", "success");
 }
 
 function exportCsv() {
@@ -461,29 +411,28 @@ function clearAll() {
   state.subjects = [];
   state.loads = [];
   resetOutput();
-  showNotice("Add teacher loads, then generate a timetable. Use the sample button to test it quickly.");
+  showNotice("Add teacher loads, then use AI Generate to place subjects into the timetable automatically.");
   renderLoads();
 }
 
 function loadSample() {
   clearAll();
   [
-    ["Ms. Achieng", "Form 1 East, Form 1 West, Form 2 East", "Mathematics", 5, "Friday P8"],
-    ["Mr. Kamau", "Form 1 East, Form 1 West, Form 2 East", "English", 5, "Monday P1"],
-    ["Mrs. Otieno", "Form 1 East, Form 1 West, Form 2 East", "Biology", 3, ""],
-    ["Mr. Njoroge", "Form 1 East, Form 1 West, Form 2 East", "History", 3, "Wednesday P6"],
-    ["Ms. Wanjiku", "Form 1 East, Form 1 West, Form 2 East", "Kiswahili", 3, ""],
-  ].forEach(([teacherName, classes, subjectName, periodsPerWeek, unavailableText]) => {
+    ["Ms. Achieng", "Form 1 East, Form 1 West, Form 2 East", "Mathematics", "Friday P8"],
+    ["Mr. Kamau", "Form 1 East, Form 1 West, Form 2 East", "English", "Monday P1"],
+    ["Mrs. Otieno", "Form 1 East, Form 1 West, Form 2 East", "Biology", ""],
+    ["Mr. Njoroge", "Form 1 East, Form 1 West, Form 2 East", "History", "Wednesday P6"],
+    ["Ms. Wanjiku", "Form 1 East, Form 1 West, Form 2 East", "Kiswahili", ""],
+  ].forEach(([teacherName, classes, subjectName, unavailableText]) => {
     addTeacherLoad({
       teacherName,
       classNames: parseList(classes),
       subjectName,
-      periodsPerWeek,
       unavailableText,
     });
   });
   renderLoads();
-  showNotice("Sample teacher loads added. Press Generate to create a timetable.", "success");
+  showNotice("Sample teacher loads added. Press AI Generate to create a timetable.", "success");
 }
 
 els.tabs.forEach((tab) => tab.addEventListener("click", () => setActiveTab(tab.dataset.tab)));
@@ -491,22 +440,19 @@ els.tabs.forEach((tab) => tab.addEventListener("click", () => setActiveTab(tab.d
 els.teacherLoadForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const classNames = parseList(els.teacherClassesInput.value);
-  const periodsPerWeek = Number(els.teacherPeriodsInput.value);
-  if (!classNames.length || periodsPerWeek < 1) {
-    showNotice("Add at least one class and one lesson per week.", "error");
+  if (!classNames.length) {
+    showNotice("Add at least one class or stream.", "error");
     return;
   }
   const added = addTeacherLoad({
     teacherName: els.teacherNameInput.value,
     classNames,
     subjectName: els.teacherSubjectInput.value,
-    periodsPerWeek,
     unavailableText: els.teacherUnavailableInput.value,
   });
   if (added) {
     els.teacherClassesInput.value = "";
     els.teacherSubjectInput.value = "";
-    els.teacherPeriodsInput.value = "4";
     els.teacherUnavailableInput.value = "";
     renderLoads();
     showNotice("Teacher load added. Add another one or generate the timetable.", "success");

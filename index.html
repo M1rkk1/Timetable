@@ -15,7 +15,7 @@
       <div class="header-actions">
         <button class="secondary" id="loadSampleButton" type="button">Load Sample</button>
         <button class="secondary" id="clearButton" type="button">Clear</button>
-        <button id="generateButton" type="button">Generate</button>
+        <button id="generateButton" type="button">AI Generate</button>
       </div>
     </header>
 
@@ -54,7 +54,7 @@
         <div class="tab-panel" id="loads">
           <div class="panel-heading">
             <h2>Teacher Loads</h2>
-            <p>Enter a teacher, the streams taught, the subject, and lessons per week in one place.</p>
+            <p>Enter a teacher, the streams taught, and the subject. The generator fills the timetable for you.</p>
           </div>
           <form class="teacher-load-form" id="teacherLoadForm">
             <label>
@@ -68,10 +68,6 @@
             <label>
               Subject
               <input id="teacherSubjectInput" type="text" placeholder="e.g. Mathematics" required />
-            </label>
-            <label>
-              Lessons per week
-              <input id="teacherPeriodsInput" type="number" min="1" max="12" value="4" required />
             </label>
             <label class="wide-field">
               Teacher unavailable slots
@@ -95,7 +91,7 @@
           </div>
         </div>
         <div class="notice" id="notice">
-          Add teacher loads, then generate a timetable. Use the sample button to test it quickly.
+          Add teacher loads, then use AI Generate to place subjects into the timetable automatically.
         </div>
         <div class="stats" id="stats"></div>
         <div class="timetable-area" id="timetableArea"></div>
