@@ -492,6 +492,14 @@ function createBreakRow(breakItem, columnCount) {
   return breakRow;
 }
 
+function createSimpleCell(text) {
+  const cell = document.createElement("td");
+  if (text) {
+    cell.innerHTML = `<div class="lesson"><strong>${escapeHtml(text)}</strong></div>`;
+  }
+  return cell;
+}
+
 function buildTimeline(timeSlots) {
   const entries = [];
   const breaks = getSortedBreaks();
@@ -508,6 +516,77 @@ function buildTimeline(timeSlots) {
     breakIndex += 1;
   }
   return entries;
+}
+
+function findTeacherLesson(result, teacherId, day, rowNumber) {
+  for (let index = 0; index < state.classes.length; index += 1) {
+    const classItem = state.classes[index];
+    const task = result.schedule[classItem.id][day][rowNumber];
+    if (task && task.teacherId === teacherId) {
+      const detail = lookupTask(task);
+      return {
+        className: classItem.name,
+        subjectName: detail && detail.subject ? detail.subject.name : "",
+      };
+    }
+  }
+  return null;
+}
+
+function renderTeacherTimetables(result) {
+  if (!state.teachers.length || !state.classes.length) return;
+
+  const section = document.createElement("section");
+  section.className = "teacher-section";
+  const heading = document.createElement("div");
+  heading.className = "section-heading";
+  heading.innerHTML = "<h3>Teacher Timetables</h3>";
+  section.append(heading);
+
+  state.teachers.forEach((teacher) => {
+    const wrapper = document.createElement("article");
+    wrapper.className = "class-table teacher-table";
+    const title = document.createElement("div");
+    title.className = "class-title";
+    title.innerHTML = `<h3>${escapeHtml(teacher.name)}</h3><span>Personal timetable</span>`;
+    wrapper.append(title);
+
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    headRow.innerHTML = "<th>Time</th>";
+    result.days.forEach((day) => {
+      const th = document.createElement("th");
+      th.textContent = day;
+      headRow.append(th);
+    });
+    thead.append(headRow);
+    table.append(thead);
+
+    const tbody = document.createElement("tbody");
+    result.timeline.forEach((entry) => {
+      if (entry.type === "break") {
+        tbody.append(createBreakRow(entry.breakItem, result.days.length + 1));
+        return;
+      }
+
+      const row = document.createElement("tr");
+      const label = document.createElement("th");
+      label.textContent = entry.slot.label;
+      row.append(label);
+      result.days.forEach((day) => {
+        const lesson = findTeacherLesson(result, teacher.id, day, entry.rowNumber);
+        const text = lesson ? `${lesson.subjectName} - ${lesson.className}` : "";
+        row.append(createSimpleCell(text));
+      });
+      tbody.append(row);
+    });
+    table.append(tbody);
+    wrapper.append(table);
+    section.append(wrapper);
+  });
+
+  els.timetableArea.append(section);
 }
 
 function renderTimetable(result) {
@@ -592,6 +671,7 @@ function renderTimetable(result) {
     wrapper.append(table);
     els.timetableArea.append(wrapper);
   });
+  renderTeacherTimetables(result);
 
   els.resultTitle.textContent = "Timetable generated";
   els.exportButton.disabled = false;
