@@ -33,11 +33,20 @@ const els = {
   generateButton: document.querySelector("#generateButton"),
   exportButton: document.querySelector("#exportButton"),
   printButton: document.querySelector("#printButton"),
+  saveButton: document.querySelector("#saveButton"),
+  loadButton: document.querySelector("#loadButton"),
+  exportJsonButton: document.querySelector("#exportJsonButton"),
+  importJsonButton: document.querySelector("#importJsonButton"),
+  importJsonInput: document.querySelector("#importJsonInput"),
+  shareButton: document.querySelector("#shareButton"),
   notice: document.querySelector("#notice"),
   stats: document.querySelector("#stats"),
   timetableArea: document.querySelector("#timetableArea"),
   resultTitle: document.querySelector("#resultTitle"),
 };
+
+const STORAGE_KEY = "gamma-school-timetable-state";
+const SHARE_PARAM = "state";
 
 function checkRequiredElements() {
   const missing = [];
@@ -72,6 +81,23 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function getSubjectColor(subjectName) {
+  const palette = [
+    "#d9f0ff", "#ffe1df", "#e1f7df", "#fff0c2", "#eadfff", "#dff7f2",
+    "#f8e0f0", "#e8edff", "#f5ead7", "#dcf0dd", "#f1e4d8", "#e2f2c8",
+  ];
+  const text = cleanName(subjectName || "Free").toLowerCase();
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) % palette.length;
+  }
+  return palette[Math.abs(hash) % palette.length];
+}
+
+function applyCellSubjectColor(cell, subjectName) {
+  cell.style.setProperty("--subject-color", subjectName ? getSubjectColor(subjectName) : "#ffffff");
 }
 
 function parseList(value) {
@@ -192,6 +218,147 @@ function showNotice(message, type = "") {
   els.notice.textContent = message;
 }
 
+function getControlState() {
+  return {
+    columns: els.columnsInput.value,
+    rows: els.rowsInput.value,
+    days: els.daysInput.value,
+    startTime: els.startTimeInput.value,
+    lessonDuration: els.lessonDurationInput.value,
+    maxDaily: els.maxDailyInput.value,
+  };
+}
+
+function applyControlState(controls = {}) {
+  if (controls.columns !== undefined) els.columnsInput.value = controls.columns;
+  if (controls.rows !== undefined) els.rowsInput.value = controls.rows;
+  if (controls.days !== undefined) els.daysInput.value = controls.days;
+  if (controls.startTime !== undefined) els.startTimeInput.value = controls.startTime;
+  if (controls.lessonDuration !== undefined) els.lessonDurationInput.value = controls.lessonDuration;
+  if (controls.maxDaily !== undefined) els.maxDailyInput.value = controls.maxDaily;
+}
+
+function buildSerializableState() {
+  return {
+    version: 1,
+    controls: getControlState(),
+    classes: state.classes,
+    teachers: state.teachers,
+    subjects: state.subjects,
+    loads: state.loads,
+    breaks: state.breaks,
+    generated: state.generated,
+  };
+}
+
+function restoreSerializableState(saved) {
+  if (!saved || typeof saved !== "object") return false;
+  applyControlState(saved.controls || {});
+  state.classes = Array.isArray(saved.classes) ? saved.classes : [];
+  state.teachers = Array.isArray(saved.teachers) ? saved.teachers : [];
+  state.subjects = Array.isArray(saved.subjects) ? saved.subjects : [];
+  state.loads = Array.isArray(saved.loads) ? saved.loads : [];
+  state.breaks = Array.isArray(saved.breaks) ? saved.breaks : [];
+  state.generated = saved.generated || null;
+  if (state.generated && state.generated.timeSlots) {
+    state.generated.timeline = buildTimeline(state.generated.timeSlots);
+  }
+  renderBreaks();
+  renderLoads();
+  renderTimetable(state.generated);
+  return true;
+}
+
+function saveToLocalStorage(showMessage = true) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(buildSerializableState()));
+  if (showMessage) showNotice("Timetable saved in this browser.", "success");
+}
+
+function loadFromLocalStorage(showMessage = true) {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    if (showMessage) showNotice("No saved timetable found in this browser.", "error");
+    return false;
+  }
+  try {
+    const restored = restoreSerializableState(JSON.parse(raw));
+    if (restored && showMessage) showNotice("Saved timetable loaded.", "success");
+    return restored;
+  } catch (error) {
+    if (showMessage) showNotice("Saved timetable could not be loaded.", "error");
+    return false;
+  }
+}
+
+function encodeStateForUrl(saved) {
+  return btoa(unescape(encodeURIComponent(JSON.stringify(saved))));
+}
+
+function decodeStateFromUrl(value) {
+  return JSON.parse(decodeURIComponent(escape(atob(value))));
+}
+
+function restoreFromShareLink() {
+  const params = new URLSearchParams(window.location.search);
+  const encoded = params.get(SHARE_PARAM);
+  if (!encoded) return false;
+  try {
+    const restored = restoreSerializableState(decodeStateFromUrl(encoded));
+    if (restored) showNotice("Shared timetable loaded from the link.", "success");
+    return restored;
+  } catch (error) {
+    showNotice("The shared timetable link is invalid or too large.", "error");
+    return false;
+  }
+}
+
+function downloadBlob(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportJson() {
+  downloadBlob(
+    JSON.stringify(buildSerializableState(), null, 2),
+    "gamma-school-timetable.json",
+    "application/json",
+  );
+}
+
+function importJsonFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.addEventListener("load", () => {
+    try {
+      restoreSerializableState(JSON.parse(reader.result));
+      saveToLocalStorage(false);
+      showNotice("JSON timetable imported.", "success");
+    } catch (error) {
+      showNotice("That JSON file could not be imported.", "error");
+    }
+  });
+  reader.readAsText(file);
+}
+
+function createShareLink() {
+  const url = new URL(window.location.href);
+  url.searchParams.set(SHARE_PARAM, encodeStateForUrl(buildSerializableState()));
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    navigator.clipboard.writeText(url.toString()).then(
+      () => showNotice("Share link copied to clipboard.", "success"),
+      () => showNotice("Share link created in the address bar.", "success"),
+    );
+  } else {
+    showNotice("Share link created in the address bar.", "success");
+  }
+  window.history.replaceState(null, "", url.toString());
+}
+
 function forEachNode(nodes, callback) {
   Array.prototype.forEach.call(nodes, callback);
 }
@@ -247,6 +414,7 @@ function renderBreaks() {
       removeById(state.breaks, breakItem.id);
       renderBreaks();
       if (state.generated) renderTimetable(state.generated);
+      saveToLocalStorage(false);
     });
     els.breaksList.append(node);
   });
@@ -296,6 +464,7 @@ function renderLoads() {
       removeById(state.loads, load.id);
       rebuildCatalogs();
       renderLoads();
+      saveToLocalStorage(false);
     });
     els.teacherLoadsList.append(node);
   });
@@ -589,6 +758,50 @@ function renderTeacherTimetables(result) {
   els.timetableArea.append(section);
 }
 
+function getCellValues(cell) {
+  const subject = cleanName(cell.querySelector(".cell-subject")?.value || "");
+  const teacher = cleanName(cell.querySelector(".cell-teacher")?.value || "");
+  return { subject, teacher };
+}
+
+function refreshCellStylesAndConflicts() {
+  const cells = Array.from(els.timetableArea.querySelectorAll('[data-table-kind="class"] td[data-cell="lesson"]'));
+  const teacherSlots = new Map();
+  const classDays = new Map();
+
+  cells.forEach((cell) => {
+    cell.classList.remove("conflict-teacher", "conflict-subject");
+    const values = getCellValues(cell);
+    applyCellSubjectColor(cell, values.subject);
+
+    if (values.teacher) {
+      const key = `${cell.dataset.day}::${cell.dataset.row}::${values.teacher.toLowerCase()}`;
+      if (!teacherSlots.has(key)) teacherSlots.set(key, []);
+      teacherSlots.get(key).push(cell);
+    }
+
+    if (values.subject) {
+      const classKey = `${cell.dataset.classId}::${cell.dataset.day}`;
+      if (!classDays.has(classKey)) classDays.set(classKey, []);
+      classDays.get(classKey).push({ cell, row: Number(cell.dataset.row), subject: values.subject.toLowerCase() });
+    }
+  });
+
+  teacherSlots.forEach((slotCells) => {
+    if (slotCells.length > 1) slotCells.forEach((cell) => cell.classList.add("conflict-teacher"));
+  });
+
+  classDays.forEach((entries) => {
+    entries.sort((a, b) => a.row - b.row);
+    for (let index = 1; index < entries.length; index += 1) {
+      if (entries[index].row === entries[index - 1].row + 1 && entries[index].subject === entries[index - 1].subject) {
+        entries[index].cell.classList.add("conflict-subject");
+        entries[index - 1].cell.classList.add("conflict-subject");
+      }
+    }
+  });
+}
+
 function renderTimetable(result) {
   els.timetableArea.innerHTML = "";
   els.stats.innerHTML = "";
@@ -616,6 +829,7 @@ function renderTimetable(result) {
   tableClasses.forEach((classItem) => {
     const wrapper = document.createElement("article");
     wrapper.className = "class-table";
+    wrapper.dataset.tableKind = "class";
     const title = document.createElement("div");
     title.className = "class-title";
     title.innerHTML = `<h3>${classItem.name}</h3><span>${result.days.length} days</span>`;
@@ -647,10 +861,16 @@ function renderTimetable(result) {
       row.append(label);
       result.days.forEach((day) => {
         const cell = document.createElement("td");
+        cell.dataset.cell = "lesson";
+        cell.dataset.classId = classItem.id;
+        cell.dataset.day = day;
+        cell.dataset.row = String(rowNumber);
         const task = result.schedule[classItem.id][day][rowNumber];
         const detail = lookupTask(task);
         const subjectValue = detail && detail.subject ? detail.subject.name : "";
         const teacherValue = detail && detail.teacher ? detail.teacher.name : "";
+        cell.classList.add("subject-cell");
+        applyCellSubjectColor(cell, subjectValue);
         cell.innerHTML = `
           <div class="editable-lesson">
             <input class="cell-subject" type="text" value="${escapeHtml(subjectValue)}" placeholder="Subject" />
@@ -659,9 +879,13 @@ function renderTimetable(result) {
         `;
         cell.querySelector(".cell-subject").addEventListener("input", (event) => {
           updateManualCell(classItem.id, day, rowNumber, "subjectName", event.target.value);
+          refreshCellStylesAndConflicts();
+          saveToLocalStorage(false);
         });
         cell.querySelector(".cell-teacher").addEventListener("input", (event) => {
           updateManualCell(classItem.id, day, rowNumber, "teacherName", event.target.value);
+          refreshCellStylesAndConflicts();
+          saveToLocalStorage(false);
         });
         row.append(cell);
       });
@@ -672,6 +896,7 @@ function renderTimetable(result) {
     els.timetableArea.append(wrapper);
   });
   renderTeacherTimetables(result);
+  refreshCellStylesAndConflicts();
 
   els.resultTitle.textContent = "Timetable generated";
   els.exportButton.disabled = false;
@@ -738,6 +963,7 @@ function clearAll() {
   state.loads = [];
   state.breaks = [];
   resetOutput();
+  localStorage.removeItem(STORAGE_KEY);
   showNotice("Add teacher loads, then use AI Generate to place subjects into the timetable automatically.");
   renderBreaks();
   renderLoads();
@@ -763,6 +989,7 @@ function loadSample() {
   });
   renderLoads();
   renderBreaks();
+  saveToLocalStorage(false);
   showNotice("Sample teacher loads added. Press AI Generate to create a timetable.", "success");
 }
 
@@ -783,6 +1010,7 @@ els.breakForm.addEventListener("submit", (event) => {
     els.breakDurationInput.value = "";
     renderBreaks();
     if (state.generated) renderTimetable(state.generated);
+    saveToLocalStorage(false);
     showNotice("Break added to the timetable skeleton.", "success");
   }
 });
@@ -805,6 +1033,7 @@ els.teacherLoadForm.addEventListener("submit", (event) => {
     els.teacherSubjectInput.value = "";
     els.teacherUnavailableInput.value = "";
     renderLoads();
+    saveToLocalStorage(false);
     showNotice("Teacher load added. Add another one or generate the timetable.", "success");
   }
 });
@@ -812,11 +1041,20 @@ els.teacherLoadForm.addEventListener("submit", (event) => {
 els.generateButton.addEventListener("click", () => {
   state.generated = generateTimetable();
   renderTimetable(state.generated);
+  saveToLocalStorage(false);
 });
+els.saveButton.addEventListener("click", () => saveToLocalStorage(true));
+els.loadButton.addEventListener("click", () => loadFromLocalStorage(true));
+els.exportJsonButton.addEventListener("click", exportJson);
+els.importJsonButton.addEventListener("click", () => els.importJsonInput.click());
+els.importJsonInput.addEventListener("change", (event) => importJsonFile(event.target.files[0]));
+els.shareButton.addEventListener("click", createShareLink);
 els.exportButton.addEventListener("click", exportCsv);
 els.printButton.addEventListener("click", () => window.print());
 els.clearButton.addEventListener("click", clearAll);
 els.loadSampleButton.addEventListener("click", loadSample);
 
-renderBreaks();
-renderLoads();
+if (!restoreFromShareLink() && !loadFromLocalStorage(false)) {
+  renderBreaks();
+  renderLoads();
+}
