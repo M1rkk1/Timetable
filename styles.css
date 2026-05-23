@@ -413,6 +413,30 @@ th:first-child {
   outline: 2px solid rgba(29, 111, 117, 0.14);
 }
 
+.subject-cell {
+  background: var(--subject-color, #ffffff);
+  transition: background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.subject-cell input {
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.conflict-teacher {
+  background: #ffe0e0 !important;
+  box-shadow: inset 0 0 0 3px #c73131;
+}
+
+.conflict-subject:not(.conflict-teacher) {
+  background: #fff5c7 !important;
+  box-shadow: inset 0 0 0 3px #d6a100;
+}
+
+.conflict-teacher input,
+.conflict-subject input {
+  background: rgba(255, 255, 255, 0.78);
+}
+
 .break-cell {
   background: #f7f0e6;
   color: #7c541e;
